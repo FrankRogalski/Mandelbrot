@@ -1,12 +1,10 @@
 package sample;
 
 import javafx.application.Application;
-import javafx.event.EventHandler;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.image.PixelWriter;
-import javafx.scene.input.MouseEvent;
 import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
@@ -17,16 +15,17 @@ public class Main extends Application {
     private GraphicsContext gc;
     private PixelWriter pixelWriter;
 
-    private  double[] relativeMousePos = {0, 0};
+    private double[] relativeMousePos = {0, 0};
 
-    private double realMin = -2.5;
-    private double realMax = 1.5;
+    private double realMidPoint = 0;
+    private double imaginaryMidPoint = 0;
+    private double difference = 2.5;
 
-    private double imaginaryMin = -2;
-    private double imaginaryMax = 2;
+    private static final long MAX_VALUE = 1000;
+    private double maxIterations = 100;
 
-    private double maxValue2 = 1000;
-    private int maxIterations = 100;
+    private static final double SIDE_SCROLLING = 6;
+    private static final double ZOOM_LEVEL = 0.5;
 
     @Override
     public void start(Stage primaryStage) {
@@ -39,33 +38,12 @@ public class Main extends Application {
         canvas = new Canvas(scene.getWidth(), scene.getHeight());
         gc = canvas.getGraphicsContext2D();
 
-        root.setOnMouseMoved(new EventHandler<MouseEvent>() {
-            @Override public void handle(MouseEvent event) {
-                relativeMousePos[0] = event.getX() / canvas.getWidth();
-                relativeMousePos[1] = event.getY() / canvas.getHeight();
-            }
+        root.setOnMouseMoved(mouseEvent -> {
+            relativeMousePos[0] = mouseEvent.getX();
+            relativeMousePos[1] = mouseEvent.getY();
         });
 
-        root.setOnScroll(new EventHandler<ScrollEvent>() {
-            @Override
-            public void handle(final ScrollEvent event) {
-                final double change = 1 - event.getDeltaY() * 0.001;
-
-                if (event.getDeltaY() < 0) {               // Zoom out
-                    realMin *= change;
-                    realMax *= change;
-                    imaginaryMin *= change;
-                    imaginaryMax *= change;
-                } else {                        // Zoom in
-                    realMin *= change;
-                    realMax *= change;
-                    imaginaryMin *= change;
-                    imaginaryMax *= change;
-                }
-                gc.clearRect(0, 0, canvas.getWidth(), canvas.getHeight());
-                apfel(realMin, realMax, imaginaryMin, imaginaryMax, maxValue2, maxIterations);
-            }
-        });
+        root.setOnScroll(this::scrolled);
 
         root.getChildren().add(canvas);
         pixelWriter = gc.getPixelWriter();
@@ -73,48 +51,87 @@ public class Main extends Application {
         primaryStage.setScene(scene);
         primaryStage.show();
 
-        gc.clearRect(0, 0, canvas.getWidth(), canvas.getHeight());
-        apfel(realMin, realMax, imaginaryMin, imaginaryMax, maxValue2, maxIterations);
+        standardMandelBrot();
     }
 
-    private void apfel(final double realMin, final double realMax, final double imaginaryMin, final double imaginaryMax, final double maxValue2, final int maxIterations) {
+    private void scrolled(final ScrollEvent scrollEvent) {
+        final double realChange = map(
+                relativeMousePos[0],
+                0, canvas.getWidth(),
+                -difference / SIDE_SCROLLING, difference / SIDE_SCROLLING);
+
+        final double imaginaryChange = map(
+                relativeMousePos[1],
+                0, canvas.getHeight(),
+                -difference / SIDE_SCROLLING, difference / SIDE_SCROLLING);
+
+        difference *= 1 - scrollEvent.getDeltaY() * 0.001;
+
+        if (scrollEvent.getDeltaY() > 0) {
+            realMidPoint += realChange;
+            imaginaryMidPoint += imaginaryChange;
+            maxIterations += ZOOM_LEVEL;
+        } else {
+            realMidPoint -= realChange;
+            imaginaryMidPoint -= imaginaryChange;
+            maxIterations -= ZOOM_LEVEL;
+        }
+
+        standardMandelBrot();
+    }
+
+    private void standardMandelBrot() {
+        gc.clearRect(0, 0, canvas.getWidth(), canvas.getHeight());
+        madelbrot(realMidPoint - difference,
+                realMidPoint + difference,
+                imaginaryMidPoint - difference,
+                imaginaryMidPoint + difference,
+                MAX_VALUE,
+                Math.round(maxIterations));
+    }
+
+    private void madelbrot(final double realMin, final double realMax, final double imaginaryMin, final double imaginaryMax, final long maxValue, final long maxIterations) {
         for (int y = 0; y < canvas.getHeight(); y++) {
             double cIm = imaginaryMin + (imaginaryMax - imaginaryMin) * y / canvas.getHeight();
 
             for (int x = 0; x < canvas.getWidth(); x++) {
                 double cRe = realMin + (realMax - realMin) * x / canvas.getWidth();
-                int iterations = julia(cRe, cIm, cRe, cIm, maxValue2, maxIterations);
+                long iterations = julia(cRe, cIm, cRe, cIm, maxValue, maxIterations);
                 Color color = chooseColor(iterations, maxIterations);
                 pixelWriter.setColor(x, y, color);
             }
         }
     }
 
-    private int julia(double x, double y, final double xAdd, final double yAdd, final double maxBetrag2, final int maxIterations) {
+    private long julia(double x, double y, final double xAdd, final double yAdd, final long maxValue, final long maxIterations) {
         double xSquared = x * x;
         double ySquared = y * y;
         double xTimesY = x * y;
         double xSquaredPlusYSquared = xSquared + ySquared;
 
-        int remainingIterations;
-        for (remainingIterations = maxIterations; xSquaredPlusYSquared <= maxBetrag2 && remainingIterations > 0; remainingIterations--) {
+        long remainingIterations;
+        for (remainingIterations = maxIterations; xSquaredPlusYSquared <= maxValue && remainingIterations > 0; remainingIterations--) {
             x = xSquared - ySquared + xAdd;
             y = xTimesY * 2 + yAdd;
-            xSquared = x*x;
-            ySquared = y*y;
-            xTimesY = x*y;
+            xSquared = x * x;
+            ySquared = y * y;
+            xTimesY = x * y;
             xSquaredPlusYSquared = xSquared + ySquared;
         }
 
         return maxIterations - remainingIterations;
     }
 
-    private Color chooseColor(final int iterations, final int maxIterations) {
-        final double color = (double)iterations / maxIterations * 255;
+    private Color chooseColor(final long iterations, final long maxIterations) {
+        final double color = (double) iterations / maxIterations * 255;
         return Color.hsb(color, 1, 1);
     }
 
     public static void main(String[] args) {
         launch(args);
+    }
+
+    private static double map(double value, double min, double max, double nMin, double nMax) {
+        return ((value - min) / (max - min)) * (nMax - nMin) + nMin;
     }
 }
